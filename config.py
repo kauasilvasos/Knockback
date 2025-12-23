@@ -18,16 +18,16 @@ class Config:
     GRAVITY = 0.035       # Antes era ~0.011 no slow mo. Aumentei para pesar.
     
     MOVE_ACCEL = 0.05       # Aceleração de movimento um pouco mais ágil
-    JUMP_FORCE = 1.8        # Força de pulo mantida (compensa com gravidade)
-    
+    JUMP_FORCE = 5       # Força de pulo mantida (compensa com gravidade)
+    DOUBLE_JUMP_FORCE = 5
     # Atrito
     GROUND_FRICTION = 0.92  
-    AIR_RESISTANCE = 0.99   
+    AIR_RESISTANCE = 0.99
     
     # --- HOOK & COMBATE ---
     HOOK_RANGE = 300
     HOOK_FORCE = 0.05       # Reduzido para não sobrepor a inércia
-    HOOK_DRAG = 0.99        # Maior retenção de velocidade para o pêndulo
+    HOOK_DRAG = 0.94        # Maior retenção de velocidade para o pêndulo
     HOOK_FLY_SPEED = 6.5
     
     EXPLOSION_RADIUS = 100
