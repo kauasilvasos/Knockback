@@ -63,6 +63,7 @@ class PhysicsEntity:
                 if self.on_ground:
                     self.vel.y = 0
 
+# ... (Particle e ParticleManager mantêm iguais, omitidos para brevidade se não mudaram) ...
 # RECOPIE AS CLASSES Particle e ParticleManager AQUI SE NECESSÁRIO, OU MANTENHA AS DO ARQUIVO ANTERIOR
 # Vou incluir ParticleManager resumido para garantir funcionamento:
 
@@ -117,20 +118,26 @@ class Player(PhysicsEntity):
         self.aim_dir = pygame.math.Vector2(1, 0)
 
     def input_update(self, actions, map_rects, projectiles_list=None):
-        accel_mod = 0.4 if self.hook_active else 1.0
+        accel_mod = 0.4 if self.hook_active else 1.0 # Mais controle aéreo no hook
 
-        # Elasticidade visual
+        # Recupera escala (Elasticidade)
         self.scale.x += (1.0 - self.scale.x) * 0.1
         self.scale.y += (1.0 - self.scale.y) * 0.1
 
-        # Atualiza vetor de mira baseado no mundo
-        mouse_vec = pygame.math.Vector2(actions.get('mouse_pos', (0,0)))
+        # Atualiza direção da mira
+        # Nota: actions['mouse_pos'] agora é relativo ao centro da tela (veja main.py)
+        mouse_vec = pygame.math.Vector2(actions['mouse_pos'])
+        # Calculamos a direção baseada no centro da tela (onde o player está visualmente)
+        # O player está sempre desenhado no 'centro' relativo da camera, mas a camera tem lerp.
+        # A forma mais precisa para DDNet style: vetor do player (mundo) até mouse (mundo)
         player_center_world = self.pos + pygame.math.Vector2(self.size/2, self.size/2)
+        
+        # Como passamos o mouse já ajustado para coordenadas de mundo no main.py:
         aim_vec = mouse_vec - player_center_world
         if aim_vec.length() > 0:
             self.aim_dir = aim_vec.normalize()
 
-        # Movimento Horizontal
+        # Movimento
         if actions.get('left'): self.apply_force((-Config.MOVE_ACCEL * accel_mod, 0))
         if actions.get('right'): self.apply_force((Config.MOVE_ACCEL * accel_mod, 0))
 
@@ -142,53 +149,86 @@ class Player(PhysicsEntity):
             if self.particle_system:
                 self.particle_system.emit(self.pos.x+15, self.pos.y+30, 5, (200,200,200), (1,3))
 
-        # --- Lógica do Gancho (DDNet Style) ---
-        if actions.get('fire'): # Botão segurado
+        # Hook Logic
+        if actions.get('fire'):
             if self.hook_state == "IDLE":
                 self.hook_state = "FLYING"
-                self.hook_pos = pygame.math.Vector2(player_center_world)
+                # Começa do centro do player
+                self.hook_pos = self.pos + pygame.math.Vector2(self.size/2, self.size/2)
+                # Dispara na direção que o jogador está olhando
                 self.hook_vel = self.aim_dir * Config.HOOK_FLY_SPEED
+            if not self.hook_active:
+                # Dispara na direção da mira
+                # Raycast simples (check point final)
+                # Para ser perfeito precisaria de um algoritmo de raycast de grade (DDA), 
+                # mas aqui vamos usar o alvo do mouse limitado pelo range.
+                
+                # Se o mouse estiver longe, clamp no range
+                target_dist = min(aim_vec.length(), Config.HOOK_RANGE)
+                target = player_center_world + self.aim_dir * target_dist
+                
+                # Verifica colisão
+                hit = False
+                for rect in map_rects:
+                    if rect.collidepoint(target):
+                        hit = True
+                        # Ajusta para o ponto exato da colisão seria ideal, aqui simplificamos
+                        self.hook_active = True
+                        self.hook_pos = target
+                        if self.camera_ref: self.camera_ref.trigger_shake(2, 4)
+                        if self.particle_system:
+                            self.particle_system.emit(target.x, target.y, 8, Config.COLOR_HOOK, (1,3))
+                        break
         else:
-            # SOLTOU A TECLA: Reseta tudo instantaneamente
-            self.hook_state = "IDLE"
             self.hook_active = False
-            self.hook_pos = pygame.math.Vector2(0, 0)
 
-        # Processamento do Projétil do Gancho
-        if self.hook_state == "FLYING":
-            self.hook_pos += self.hook_vel
-            # Se atingir o limite de alcance sem bater em nada
-            if self.hook_pos.distance_to(player_center_world) > Config.HOOK_RANGE:
-                self.hook_state = "IDLE"
-            
-            # Verifica colisão com paredes para grudar
-            for rect in map_rects:
-                if rect.collidepoint(self.hook_pos):
-                    self.hook_state = "ATTACHED"
-                    self.hook_active = True
-                    if self.camera_ref: self.camera_ref.trigger_shake(2, 4)
-                    break
-
-        # Física de tração quando preso
-        if self.hook_state == "ATTACHED":
+        
+        if self.hook_active:
             hook_vec = self.hook_pos - self.pos
             dist = hook_vec.length()
             if dist > 0:
                 hook_dir = hook_vec.normalize()
-                self.apply_force(hook_dir * dist * 0.08 * Config.HOOK_FORCE)
-                self.vel *= Config.HOOK_DRAG
+                # Mola mais rígida
+                pull = dist * 0.08 
+                self.apply_force(hook_dir * pull * Config.HOOK_FORCE)
+                self.vel *= Config.HOOK_DRAG # Mantém momentum
 
-        # Física Geral e Colisão Customizada
-        self.update_physics()
+        # Física customizada para Hook
+        self.acc.y += Config.GRAVITY
+        self.vel += self.acc
+        
+        # Se estiver no hook, aplicamos menos resistência para balançar melhor
+        if not self.on_ground:
+            drag = 0.995 if self.hook_active else Config.AIR_RESISTANCE
+            self.vel *= drag
+            
+        self.pos += self.vel
+        self.acc *= 0
+        
+        # Colisão Customizada
         self.resolve_collisions_custom(map_rects)
 
-        # Game Feel de impacto
+        # Game Feel (Impacto)
         if self.on_ground and not self.was_on_ground:
             if abs(self.vel.y) > 2:
                 self.scale = pygame.math.Vector2(1.4, 0.7)
                 if self.particle_system:
                     self.particle_system.emit(self.pos.x+15, self.pos.y+30, 8, Config.COLOR_GROUND, (1,4))
         self.was_on_ground = self.on_ground
+
+        # Rastro
+        if len(self.trail) > 5: self.trail.pop(0)
+        self.trail.append((self.pos.x, self.pos.y))
+
+        # Tiro
+        if self.weapon_cooldown > 0: self.weapon_cooldown -= 1
+        if actions.get('shoot') and self.weapon_cooldown == 0 and projectiles_list is not None:
+            self.weapon_cooldown = 40
+            center = self.pos + pygame.math.Vector2(15, 15)
+            # Recuo
+            self.vel -= self.aim_dir * 1.5
+            projectiles_list.append(Projectile(center.x, center.y, math.atan2(self.aim_dir.y, self.aim_dir.x), 5.0, self))
+
     def resolve_collisions_custom(self, map_rects):
         """Versão modificada que permite deslizar melhor quando usa o gancho."""
         self.on_ground = False
@@ -224,7 +264,6 @@ class Player(PhysicsEntity):
                 r.y = self.pos.y
 
     def draw_hook(self, surface):
-        if self.hook_state == "IDLE": return
         if not self.hook_active: return
         player_center = self.pos + pygame.math.Vector2(self.size/2, self.size/2)
         hook_vec = self.hook_pos - player_center
