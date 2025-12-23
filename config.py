@@ -15,7 +15,7 @@ class Config:
     
     # --- FÍSICA AJUSTADA (Mais pesado/rápido) ---
     # Aumentei a gravidade para cair mais rápido (DDNet feel)
-    GRAVITY = 0.070       # Antes era ~0.011 no slow mo. Aumentei para pesar.
+    GRAVITY = 0.035       # Antes era ~0.011 no slow mo. Aumentei para pesar.
     
     MOVE_ACCEL = 0.05       # Aceleração de movimento um pouco mais ágil
     JUMP_FORCE = 1.8        # Força de pulo mantida (compensa com gravidade)
@@ -26,9 +26,9 @@ class Config:
     
     # --- HOOK & COMBATE ---
     HOOK_RANGE = 200      # Um pouco mais de alcance
-    HOOK_FORCE = 0.06       # Puxada mais forte para compensar a gravidade nova
-    HOOK_DRAG = 0.96    
-    HOOK_FLY_SPEED = 4.5
+    HOOK_FORCE = 0.05       # Puxada mais forte para compensar a gravidade nova
+    HOOK_DRAG = 0.75    
+    HOOK_FLY_SPEED = 10
     
     EXPLOSION_RADIUS = 100
     KNOCKBACK_FORCE = 2.25

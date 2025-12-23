@@ -53,23 +53,17 @@ class Camera:
             return entity
 
     def update(self, target):
-        x = -target.pos.x + int(Config.SCREEN_WIDTH / 2)
-        y = -target.pos.y + int(Config.SCREEN_HEIGHT / 2)
+        # Para centralização absoluta e imediata:
+        # Mudamos de LERP (0.05) para 1.0 ou apenas definimos a posição
+        target_x = -target.pos.x + (Config.SCREEN_WIDTH / 2) - (target.size / 2)
+        target_y = -target.pos.y + (Config.SCREEN_HEIGHT / 2) - (target.size / 2)
 
-        current_x, current_y = self.camera.x, self.camera.y
-        new_x = current_x + (x - current_x) * 0.05
-        new_y = current_y + (y - current_y) * 0.05
-
-        x = min(0, new_x)
-        y = min(0, new_y)
-        x = max(-(self.width - Config.SCREEN_WIDTH), x)
-        y = max(-(self.height - Config.SCREEN_HEIGHT), y)
-
-        if self.shake_timer > 0:
-            offset_x = random.randint(-self.shake_magnitude, self.shake_magnitude)
-            offset_y = random.randint(-self.shake_magnitude, self.shake_magnitude)
-            x += offset_x
-            y += offset_y
-            self.shake_timer -= 1
-
-        self.camera = pygame.Rect(int(x), int(y), self.width, self.height)
+        # Se quiser manter um pouco de suavização estilo DDNet, use 0.1 a 0.2
+        # Para trava total, use 1.0
+        lerp_speed = 1.0 
+        
+        self.camera.x += (target_x - self.camera.x) * lerp_speed
+        self.camera.y += (target_y - self.camera.y) * lerp_speed
+        
+        # Opcional: Remova o código de "Clamp" (min/max) se quiser que a câmera 
+        # siga o jogador mesmo fora dos limites do mapa.

@@ -116,25 +116,25 @@ class Player(PhysicsEntity):
         # Direção da mira (input)
         self.aim_dir = pygame.math.Vector2(1, 0)
 
+    # No arquivo entities.py, dentro da classe Player:
+
     def input_update(self, actions, map_rects, projectiles_list=None):
         accel_mod = 0.4 if self.hook_active else 1.0
 
-        # Elasticidade visual
+        # 1. Recuperação de Escala (Squash & Stretch)
         self.scale.x += (1.0 - self.scale.x) * 0.1
         self.scale.y += (1.0 - self.scale.y) * 0.1
 
-        # Atualiza vetor de mira baseado no mundo
+        # 2. Atualização da Mira
         mouse_vec = pygame.math.Vector2(actions.get('mouse_pos', (0,0)))
         player_center_world = self.pos + pygame.math.Vector2(self.size/2, self.size/2)
         aim_vec = mouse_vec - player_center_world
         if aim_vec.length() > 0:
             self.aim_dir = aim_vec.normalize()
 
-        # Movimento Horizontal
+        # 3. Movimento e Pulo
         if actions.get('left'): self.apply_force((-Config.MOVE_ACCEL * accel_mod, 0))
         if actions.get('right'): self.apply_force((Config.MOVE_ACCEL * accel_mod, 0))
-
-        # Pulo
         if actions.get('up') and self.on_ground:
             self.vel.y = -Config.JUMP_FORCE
             self.on_ground = False
@@ -142,32 +142,48 @@ class Player(PhysicsEntity):
             if self.particle_system:
                 self.particle_system.emit(self.pos.x+15, self.pos.y+30, 5, (200,200,200), (1,3))
 
-        # --- Lógica do Gancho (DDNet Style) ---
-        if actions.get('fire'): # Botão segurado
+        # 4. Lógica do Hook (Só enquanto segura)
+        if actions.get('fire'):
             if self.hook_state == "IDLE":
                 self.hook_state = "FLYING"
                 self.hook_pos = pygame.math.Vector2(player_center_world)
                 self.hook_vel = self.aim_dir * Config.HOOK_FLY_SPEED
         else:
-            # SOLTOU A TECLA: Reseta tudo instantaneamente
             self.hook_state = "IDLE"
             self.hook_active = False
-            self.hook_pos = pygame.math.Vector2(0, 0)
 
-        # Processamento do Projétil do Gancho
         if self.hook_state == "FLYING":
             self.hook_pos += self.hook_vel
-            # Se atingir o limite de alcance sem bater em nada
             if self.hook_pos.distance_to(player_center_world) > Config.HOOK_RANGE:
                 self.hook_state = "IDLE"
-            
-            # Verifica colisão com paredes para grudar
             for rect in map_rects:
                 if rect.collidepoint(self.hook_pos):
                     self.hook_state = "ATTACHED"
                     self.hook_active = True
-                    if self.camera_ref: self.camera_ref.trigger_shake(2, 4)
                     break
+        elif self.hook_state == "ATTACHED":
+            hook_vec = self.hook_pos - self.pos
+            if hook_vec.length() > 0:
+                self.apply_force(hook_vec.normalize() * hook_vec.length() * 0.08 * Config.HOOK_FORCE)
+                self.vel *= Config.HOOK_DRAG
+
+        # 5. LÓGICA DE DISPARO (Corrigida)
+        if self.weapon_cooldown > 0:
+            self.weapon_cooldown -= 1
+
+        if actions.get('shoot') and self.weapon_cooldown == 0:
+            self.weapon_cooldown = 40 
+            if projectiles_list is not None:
+                # Dispara na direção exata da mira
+                angle = math.atan2(self.aim_dir.y, self.aim_dir.x)
+                new_proj = Projectile(player_center_world.x, player_center_world.y, angle, 5.0, self)
+                projectiles_list.append(new_proj)
+                # Recuo visual
+                self.vel -= self.aim_dir * 1.5
+
+        # 6. Física Final
+        self.update_physics()
+        self.resolve_collisions_custom(map_rects)
 
         # Física de tração quando preso
         if self.hook_state == "ATTACHED":
