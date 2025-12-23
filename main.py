@@ -1,10 +1,8 @@
-# main.py
 import pygame
 from config import Config
 from core import InputHandler, Camera
 from map_system import TileMap
 from entities import Player, ParticleManager, Projectile, Bot
-
 
 class Game:
     def __init__(self):
@@ -14,17 +12,11 @@ class Game:
         self.clock = pygame.time.Clock()
         self.running = True
         
-        self.bots = []
-        self.bots.append(Bot(350, 500, self.particles))
-        self.bots.append(Bot(650, 400, self.particles))
-        self.bots.append(Bot(950, 200, self.particles))
-
-        # 1. Inicializa Sistemas Core
+        # 1. Core
         self.input = InputHandler()
         self.particles = ParticleManager()
         
-        # 2. Inicializa Mundo (Level Design)
-        # 0 = Ar, 1 = Parede
+        # 2. Map
         level_layout = [
             "1111111111111111111111111111111111111111",
             "1000000000000000000000000000000000000001",
@@ -43,9 +35,14 @@ class Game:
         self.map = TileMap(level_layout)    
         self.camera = Camera(self.map.width, self.map.height)
         
-        # 3. Inicializa Entidades
+        # 3. Entities
         self.player = Player(100, 300, self.particles, self.camera)
         self.projectiles = []
+        
+        self.bots = []
+        self.bots.append(Bot(350, 500, self.particles))
+        self.bots.append(Bot(650, 400, self.particles))
+        self.bots.append(Bot(950, 200, self.particles))
 
     def run(self):
         while self.running:
@@ -56,10 +53,7 @@ class Game:
             
             actions = self.input.process_events()
             
-            # Correção de Mouse (Screen -> World)
-            mouse_vec = pygame.math.Vector2(actions['mouse_pos'])
-            world_mouse = self.camera.apply(mouse_vec) # Usando método reverso se necessário, ou somando offset manual
-            # Simplificação: Ajuste manual aqui se a classe Camera não tiver unproject
+            # Ajuste Mouse
             world_mouse_x = actions['mouse_pos'][0] - self.camera.camera.x
             world_mouse_y = actions['mouse_pos'][1] - self.camera.camera.y
             actions['mouse_pos'] = (world_mouse_x, world_mouse_y)
@@ -67,11 +61,21 @@ class Game:
             # --- UPDATE ---
             self.player.input_update(actions, self.map.walls, self.projectiles)
             
-            # Atualiza Projéteis
+            # Bots
+            for bot in self.bots:
+                bot.update_ai(self.map.walls)
+                if bot.is_dead: # Respawn simples
+                    import random
+                    if random.randint(0, 200) == 0:
+                        bot.is_dead = False
+                        bot.hp = 100
+                        bot.pos = pygame.math.Vector2(random.randint(200, 800), 100)
+                        bot.vel *= 0
+
+            # Projéteis
             self.projectiles = [p for p in self.projectiles if p.active]
             for p in self.projectiles:
-                # Lista de alvos afetados pela explosão (Player + futuros inimigos)
-                targets = [self.player] 
+                targets = [self.player] + [b for b in self.bots if not b.is_dead]
                 p.update(self.map.walls, targets, self.particles, self.camera)
 
             self.particles.update()
@@ -81,21 +85,22 @@ class Game:
             self.screen.fill(Config.COLOR_BG)
             self.map.draw(self.screen, self.camera)
             
-            for bot in self.bots:
-                bot.draw(self.screen, self.camera)
-
-            # Desenha Projéteis
+            for bot in self.bots: bot.draw(self.screen, self.camera)
+            
+            # Desenha projéteis
             for p in self.projectiles:
                 draw_pos = self.camera.apply(p.pos)
                 pygame.draw.circle(self.screen, (50, 50, 50), (int(draw_pos.x), int(draw_pos.y)), 6)
                 pygame.draw.circle(self.screen, (255, 100, 100), (int(draw_pos.x), int(draw_pos.y)), 4)
 
             self.particles.draw(self.screen, self.camera)
-            self.player.draw(self.screen) # Método draw do player precisa aplicar a câmera internamente ou receber posição ajustada
+            
+            # Desenha Player (Já inclui o hook e squash & stretch)
+            self.player.draw(self.screen)
 
-            # UI Debug
+            # Debug UI
             fps = int(self.clock.get_fps())
-            pygame.display.set_caption(f"{Config.TITLE} | FPS: {fps} | Projectiles: {len(self.projectiles)}")
+            pygame.display.set_caption(f"{Config.TITLE} | FPS: {fps}")
 
             pygame.display.flip()
             self.clock.tick(Config.FPS)
