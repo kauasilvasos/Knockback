@@ -61,9 +61,8 @@ class Camera:
         # Se quiser manter um pouco de suavização estilo DDNet, use 0.1 a 0.2
         # Para trava total, use 1.0
         lerp_speed = 1.0 
-        
-        self.camera.x += (target_x - self.camera.x) * lerp_speed
-        self.camera.y += (target_y - self.camera.y) * lerp_speed
+        self.camera.x = -target.pos.x + (Config.SCREEN_WIDTH / 2) - (target.size / 2)
+        self.camera.y = -target.pos.y + (Config.SCREEN_HEIGHT / 2) - (target.size / 2)
         
         # Opcional: Remova o código de "Clamp" (min/max) se quiser que a câmera 
         # siga o jogador mesmo fora dos limites do mapa.

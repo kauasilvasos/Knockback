@@ -103,10 +103,12 @@ class Player(PhysicsEntity):
         self.particle_system = particle_system
         self.camera_ref = camera_ref
         
+        self.jumps_left = 2
         self.hook_active = False
         self.hook_pos = pygame.math.Vector2(0, 0)
         self.hook_vel = pygame.math.Vector2(0, 0)
         self.hook_state = "IDLE" # IDLE, FLYING, ATTACHED
+        self.hooked_entity = None
 
         self.trail = []
         self.was_on_ground = False
@@ -118,9 +120,12 @@ class Player(PhysicsEntity):
 
     # No arquivo entities.py, dentro da classe Player:
 
-    def input_update(self, actions, map_rects, projectiles_list=None):
+    def input_update(self, actions, map_rects, projectiles_list=None, bots_list=None):
         accel_mod = 0.4 if self.hook_active else 1.0
 
+        if self.on_ground:
+            self.jumps_left = 2
+            
         # 1. Recuperação de Escala (Squash & Stretch)
         self.scale.x += (1.0 - self.scale.x) * 0.1
         self.scale.y += (1.0 - self.scale.y) * 0.1
@@ -135,36 +140,81 @@ class Player(PhysicsEntity):
         # 3. Movimento e Pulo
         if actions.get('left'): self.apply_force((-Config.MOVE_ACCEL * accel_mod, 0))
         if actions.get('right'): self.apply_force((Config.MOVE_ACCEL * accel_mod, 0))
-        if actions.get('up') and self.on_ground:
-            self.vel.y = -Config.JUMP_FORCE
-            self.on_ground = False
-            self.scale = pygame.math.Vector2(0.7, 1.4)
-            if self.particle_system:
-                self.particle_system.emit(self.pos.x+15, self.pos.y+30, 5, (200,200,200), (1,3))
+
+        # Pulo simples e pulo duplo
+        if actions.get('up'):
+            if self.on_ground and self.jumps_left > 0:
+                self.vel.y = -Config.JUMP_FORCE
+                self.on_ground = False
+                self.jumps_left -= 1
+                self.scale = pygame.math.Vector2(0.7, 1.4)
+                if self.particle_system:
+                    self.particle_system.emit(self.pos.x+15, self.pos.y+30, 5, (200,200,200), (1,3))
+            elif (not self.on_ground) and self.jumps_left == 1:
+                # Pulo duplo
+                self.vel.y = -Config.DOUBLE_JUMP_FORCE
+                self.jumps_left = 0
+                self.scale = pygame.math.Vector2(0.8, 1.2)
+                if self.particle_system:
+                    self.particle_system.emit(self.pos.x+15, self.pos.y+30, 10, (255,220,120), (2,4))
 
         # 4. Lógica do Hook (Só enquanto segura)
+        # --- Lógica de Hook para Ar e Entidades ---
         if actions.get('fire'):
             if self.hook_state == "IDLE":
                 self.hook_state = "FLYING"
                 self.hook_pos = pygame.math.Vector2(player_center_world)
                 self.hook_vel = self.aim_dir * Config.HOOK_FLY_SPEED
+                self.hooked_entity = None
         else:
             self.hook_state = "IDLE"
             self.hook_active = False
 
         if self.hook_state == "FLYING":
             self.hook_pos += self.hook_vel
+            # Se atingir distância máxima no ar, o hook volta (estilo DDNet)
             if self.hook_pos.distance_to(player_center_world) > Config.HOOK_RANGE:
                 self.hook_state = "IDLE"
+            
+            # Verifica colisão com mapa
             for rect in map_rects:
                 if rect.collidepoint(self.hook_pos):
                     self.hook_state = "ATTACHED"
                     self.hook_active = True
                     break
-        elif self.hook_state == "ATTACHED":
+                    
+            # Verifica colisão com outros bots/players (bots_list deve conter bots)
+            if bots_list:
+                for bot in bots_list:
+                    if bot.rect.collidepoint(self.hook_pos):
+                        self.hook_state = "ATTACHED"
+                        self.hook_active = True
+                        self.hooked_entity = bot
+                        break
+
+        # --- Efeito Pêndulo (Tração não Linear) ---
+        if self.hook_state == "ATTACHED":
+            # Se preso a uma entidade, atualiza posição do gancho
+            if hasattr(self, 'hooked_entity') and self.hooked_entity:
+                try:
+                    self.hook_pos = self.hooked_entity.pos + pygame.math.Vector2(15, 15)
+                except Exception:
+                    pass
+                # Aplica força na entidade também (puxa um contra o outro)
+                dir_to_player = (self.pos - self.hook_pos)
+                if dir_to_player.length() > 0:
+                    dir_to_player = dir_to_player.normalize()
+                    try:
+                        self.hooked_entity.apply_force(dir_to_player * 0.05)
+                    except Exception:
+                        pass
+
             hook_vec = self.hook_pos - self.pos
-            if hook_vec.length() > 0:
-                self.apply_force(hook_vec.normalize() * hook_vec.length() * 0.08 * Config.HOOK_FORCE)
+            dist = hook_vec.length()
+            if dist > 0:
+                hook_dir = hook_vec.normalize()
+                pull_strength = dist * 0.01 * Config.HOOK_FORCE
+                self.apply_force(hook_dir * pull_strength)
                 self.vel *= Config.HOOK_DRAG
 
         # 5. LÓGICA DE DISPARO (Corrigida)

@@ -25,10 +25,10 @@ class Config:
     AIR_RESISTANCE = 0.99   
     
     # --- HOOK & COMBATE ---
-    HOOK_RANGE = 200      # Um pouco mais de alcance
-    HOOK_FORCE = 0.05       # Puxada mais forte para compensar a gravidade nova
-    HOOK_DRAG = 0.75    
-    HOOK_FLY_SPEED = 10
+    HOOK_RANGE = 300
+    HOOK_FORCE = 0.05       # Reduzido para não sobrepor a inércia
+    HOOK_DRAG = 0.99        # Maior retenção de velocidade para o pêndulo
+    HOOK_FLY_SPEED = 6.5
     
     EXPLOSION_RADIUS = 100
     KNOCKBACK_FORCE = 2.25
