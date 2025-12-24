@@ -3,348 +3,260 @@ import math
 import random
 from config import Config
 from core import MathUtils
+from entities_physics import PhysicsEntity, ParticleManager 
+import entities_draw 
 
-class ParticleManager:
-    def __init__(self): 
-        self.particles = []
-    
-    def emit(self, pos, count, color, speed_range, life_range, size_decay=True):
-        for _ in range(count):
-            angle = random.uniform(0, 6.28)
-            # Velocidade aleatória para criar dispersão natural
-            speed = random.uniform(*speed_range)
-            vel = pygame.math.Vector2(math.cos(angle) * speed, math.sin(angle) * speed)
-            life = random.randint(*life_range)
-            # Estrutura: [pos, vel, color, life, max_life, decay_flag]
-            self.particles.append([pygame.math.Vector2(pos), vel, list(color), life, life, size_decay])
+# Re-exporta ParticleManager para compatibilidade com o main.py
+__all__ = ['Player', 'Projectile', 'ParticleManager', 'PhysicsEntity']
 
-    def update(self):
-        for p in self.particles[:]:
-            p[3] -= 1 # Reduz vida
-            if p[3] <= 0:
-                self.particles.remove(p)
-                continue
-            
-            p[0] += p[1] # Move: pos += vel
-            p[1] *= 0.92 # Atrito (Arraste) para as partículas desacelerarem (Splash Effect)
-
-    def draw(self, surface, camera):
-        for p in self.particles:
-            pos, vel, color, life, max_life, decay = p
-            
-            # Alpha Fade (desaparece suavemente)
-            alpha = int(255 * (life / max_life)) if max_life > 0 else 0
-            
-            # Tamanho dinâmico
-            size = 4
-            if decay:
-                size = max(0, int(8 * (life / max_life)))
-            
-            # Desenha com transparência (SRCALPHA)
-            s = pygame.Surface((size*2, size*2), pygame.SRCALPHA)
-            pygame.draw.circle(s, (*color, alpha), (size, size), size)
-            
-            draw_pos = camera.apply(pos)
-            surface.blit(s, (draw_pos.x - size, draw_pos.y - size))
-
-class PhysicsEntity:
-    def __init__(self, x, y, size):
+class Projectile:
+    def __init__(self, x, y, angle, particles):
         self.pos = pygame.math.Vector2(x, y)
-        self.vel = pygame.math.Vector2(0, 0)
-        self.size = size
-        self.rect = pygame.Rect(x, y, size, size)
-        self.on_ground = False
-    
-    def update_physics(self, walls):
-        # Gravidade
-        self.vel.y = min(self.vel.y + Config.GRAVITY, Config.TERMINAL_VELOCITY)
-        
-        # Eixo X
-        self.pos.x += self.vel.x
-        self.rect.x = round(self.pos.x)
-        hits = self.rect.collidelistall(walls)
-        for i in hits:
-            wall = walls[i]
-            if self.vel.x > 0: 
-                self.rect.right = wall.left
-                self.pos.x = self.rect.x
-                self.vel.x = 0
-            elif self.vel.x < 0: 
-                self.rect.left = wall.right
-                self.pos.x = self.rect.x
-                self.vel.x = 0
-        
-        # Eixo Y
-        self.pos.y += self.vel.y
-        self.rect.y = round(self.pos.y)
-        self.on_ground = False
-        hits = self.rect.collidelistall(walls)
-        for i in hits:
-            wall = walls[i]
-            if self.vel.y > 0: 
-                self.rect.bottom = wall.top
-                self.pos.y = self.rect.y
-                self.vel.y = 0
-                self.on_ground = True
-            elif self.vel.y < 0: 
-                self.rect.top = wall.bottom
-                self.pos.y = self.rect.y
-                self.vel.y = 0
-
-    def apply_knockback(self, force_vec):
-        self.vel += force_vec
-        self.on_ground = False
-
-class Player(PhysicsEntity):
-    def __init__(self, x, y, particles, camera_ref):
-        super().__init__(x, y, 30)
+        self.vel = pygame.math.Vector2(math.cos(angle), math.sin(angle)) * Config.GRENADE_SPEED
+        self.rect = pygame.Rect(x, y, 12, 12)
         self.particles = particles
-        self.camera = camera_ref
-        self.jumps_left = 2
-        self.facing_right = True
-        
-        self.hook_active = False
-        self.hook_pos = pygame.math.Vector2(0,0)
-        self.hook_vel = pygame.math.Vector2(0,0)
-        self.hook_state = "IDLE" 
-        
-        self.weapon_cooldown = 0
-        self.aim_dir = pygame.math.Vector2(1, 0)
-
-    def update(self, actions, walls, projectiles_list=None):
-        # Mira
-        mouse_screen = pygame.math.Vector2(actions['mouse_pos'])
-        mouse_world = mouse_screen - pygame.math.Vector2(self.camera.camera.topleft)
-        player_center = self.pos + pygame.math.Vector2(self.size/2, self.size/2)
-        
-        aim_vec = mouse_world - player_center
-        if aim_vec.length() > 0: self.aim_dir = aim_vec.normalize()
-        
-        if mouse_world.x > player_center.x: self.facing_right = True
-        else: self.facing_right = False
-
-        # Movimento
-        if actions['left']: self.vel.x -= Config.MOVE_ACCEL
-        if actions['right']: self.vel.x += Config.MOVE_ACCEL
-        
-        friction = Config.MOVE_FRICTION if self.on_ground else Config.AIR_FRICTION
-        if self.hook_state == "HOOKED": friction = 0.999 
-        self.vel.x *= friction
-        
-        if actions['up']:
-            if self.on_ground:
-                self.vel.y = -Config.JUMP_FORCE
-                self.jumps_left = 1
-                # Efeito de poeira no pulo
-                self.particles.emit(self.rect.midbottom, 5, (200,200,200), (1, 3), (10, 20))
-            elif self.jumps_left > 0 and not self.hook_active:
-                self.vel.y = -Config.DOUBLE_JUMP_FORCE
-                self.jumps_left = 0
-                self.particles.emit(self.rect.midbottom, 5, (150,200,255), (1, 3), (10, 20))
-
-        # HOOK
-        if actions['hook']:
-            if self.hook_state == "IDLE":
-                self.hook_state = "THROWN"
-                self.hook_pos = pygame.math.Vector2(player_center)
-                self.hook_vel = self.aim_dir * Config.HOOK_SPEED
-        else:
-            self.hook_state = "IDLE"
-            self.hook_active = False
-
-        if self.hook_state == "THROWN":
-            self.hook_pos += self.hook_vel
-            for wall in walls:
-                if wall.collidepoint(self.hook_pos):
-                    self.hook_state = "HOOKED"
-                    self.hook_active = True
-                    self.camera.trigger_shake(2, 5) # Shake leve ao conectar
-                    # Faíscas ao conectar
-                    self.particles.emit(self.hook_pos, 8, (255,255,200), (2, 5), (10, 20))
-                    break
-            if self.hook_pos.distance_to(player_center) > Config.HOOK_RANGE:
-                self.hook_state = "IDLE"
-
-        if self.hook_state == "HOOKED":
-            rope_vec = self.hook_pos - player_center
-            dist = rope_vec.length()
-            rope_dir = MathUtils.normalize_safe(rope_vec)
-            
-            if dist > 50:
-                self.vel += rope_dir * Config.HOOK_PULL_FORCE * (dist * 0.05)
-            
-            tangent = pygame.math.Vector2(-rope_dir.y, rope_dir.x)
-            input_dir = 0
-            if actions['left']: input_dir = -1
-            if actions['right']: input_dir = 1
-            if input_dir != 0:
-                self.vel += tangent * input_dir * Config.HOOK_SWING_FORCE
-            
-            self.vel *= Config.HOOK_DRAG
-
-        # TIRO (Granada de Impacto)
-        if self.weapon_cooldown > 0: self.weapon_cooldown -= 1
-        
-        if actions['shoot'] and self.weapon_cooldown == 0 and projectiles_list is not None:
-            self.weapon_cooldown = 25 # Cadência de tiro
-            
-            # Velocidade inicial + Inércia do jogador
-            start_vel = self.aim_dir * Config.GRENADE_SPEED + (self.vel * 0.4)
-            
-            projectiles_list.append(Grenade(player_center.x, player_center.y, start_vel, self.particles, self.camera))
-            
-            # Recuo (Juice)
-            self.vel -= self.aim_dir * 3.0 
-            self.camera.trigger_shake(3, 5) # Shake leve no disparo
-
-        self.update_physics(walls)
-
-    def draw(self, surface, camera):
-        player_center = self.pos + pygame.math.Vector2(self.size/2, self.size/2)
-        
-        # Desenha Hook
-        if self.hook_active or self.hook_state == "THROWN":
-            start = camera.apply(player_center)
-            end = camera.apply(self.hook_pos)
-            pygame.draw.line(surface, Config.COLOR_HOOK, start, end, 3)
-            pygame.draw.circle(surface, Config.COLOR_HOOK, end, 5)
-
-        # Desenha Player
-        rect_draw = camera.apply(self.rect)
-        pygame.draw.rect(surface, Config.COLOR_PLAYER, rect_draw, border_radius=4)
-        
-        # Desenha Arma
-        start_gun = rect_draw.center
-        end_gun = (start_gun[0] + self.aim_dir.x * 25, start_gun[1] + self.aim_dir.y * 25)
-        pygame.draw.line(surface, (40,40,40), start_gun, end_gun, 6)
-
-class Grenade(PhysicsEntity):
-    def __init__(self, x, y, velocity, particle_sys, camera_ref):
-        super().__init__(x, y, 12)
-        self.vel = velocity
-        self.particles = particle_sys
-        self.camera = camera_ref
-        self.timer = 180 # Tempo máximo de vida (se não bater em nada)
-        self.max_timer = 180
+        self.life = Config.GRENADE_LIFETIME
         self.active = True
 
     def update(self, walls, entities):
-        if not self.active: return
-        
         self.vel.y += Config.GRAVITY
+        self.pos += self.vel
+        self.rect.topleft = (int(self.pos.x), int(self.pos.y))
         
-        # Colisão com Paredes (Impacto Instantâneo)
-        self.pos.x += self.vel.x
-        self.rect.x = round(self.pos.x)
-        if self.rect.collidelist(walls) != -1:
-            self.explode(entities)
-            return
+        if random.random() < 0.3:
+            self.particles.emit(self.pos, 1, (100, 100, 100), 1)
 
-        self.pos.y += self.vel.y
-        self.rect.y = round(self.pos.y)
-        if self.rect.collidelist(walls) != -1:
-            self.explode(entities)
-            return
+        self.life -= 1
+        if self.life <= 0:
+            self.explode(entities); return
 
-        # Colisão com Entidades (Bots/Player)
-        # Grace period: só explode em entidades após 10 frames de vida
-        # para não explodir no próprio jogador instantaneamente.
-        if (self.max_timer - self.timer) > 10:
-            for e in entities:
-                # Ignora a si mesmo na checagem
-                if e is not self and self.rect.colliderect(e.rect):
-                    self.explode(entities)
-                    return
-
-        self.timer -= 1
-        if self.timer <= 0:
-            self.explode(entities)
+        for w in walls:
+            if self.rect.colliderect(w): self.explode(entities); return
 
     def explode(self, entities):
-        if not self.active: return
         self.active = False
-        
-        # --- GAME FEEL: SPLASH EFFECT ---
-        # 1. Screen Shake forte
-        self.camera.trigger_shake(15, 12) 
-        
-        # 2. Partículas (Splash Visual)
-        center = self.pos + pygame.math.Vector2(self.size/2, self.size/2)
-        
-        # Camada 1: Núcleo (Flash Branco/Amarelo - Rápido)
-        self.particles.emit(center, 15, (255, 255, 200), (6, 12), (5, 15))
-        
-        # Camada 2: Explosão Principal (Laranja/Vermelho - Médio)
-        self.particles.emit(center, 30, (255, 100, 50), (3, 8), (20, 40))
-        
-        # Camada 3: Fumaça/Detritos (Cinza Escuro - Lento e Duradouro)
-        self.particles.emit(center, 20, (100, 100, 100), (1, 4), (40, 70))
-
-        # 3. Lógica de Dano e Knockback
-        for e in entities:
-            if hasattr(e, 'is_dead') and e.is_dead: continue
-            if e is self: continue
-            
-            ent_center = e.pos + pygame.math.Vector2(e.size/2, e.size/2)
-            dist = center.distance_to(ent_center)
-            
-            if dist < Config.EXPLOSION_RADIUS:
-                # Vetor de força normalizado
-                force_dir = MathUtils.normalize_safe(ent_center - center)
-                
-                # Força decai com a distância (mais perto = mais forte)
-                knockback_mag = Config.EXPLOSION_FORCE * (1 - (dist / Config.EXPLOSION_RADIUS))
-                
-                e.apply_knockback(force_dir * knockback_mag)
-                
-                if hasattr(e, 'hp'):
-                    e.hp -= 40
-                    if e.hp <= 0: e.is_dead = True
+        self.particles.emit(self.pos, 20, Config.COLOR_EXPLOSION, 8)
+        blast_center = self.pos
+        for entity in entities:
+            if isinstance(entity, PhysicsEntity):
+                dist_vec = entity.pos - blast_center
+                dist = dist_vec.length()
+                if dist < Config.GRENADE_BLAST_RADIUS:
+                    force_factor = (Config.GRENADE_BLAST_RADIUS - dist) / Config.GRENADE_BLAST_RADIUS
+                    direction = dist_vec.normalize() if dist > 0 else pygame.math.Vector2(0, -1)
+                    entity.vel += direction * (Config.GRENADE_BLAST_FORCE * force_factor)
 
     def draw(self, surface, camera):
-        if not self.active: return
-        draw_pos = camera.apply(self.rect)
-        
-        # Desenha a granada piscando (aviso visual)
-        color = (50, 50, 50)
-        if (self.timer // 4) % 2 == 0: 
-            color = (200, 50, 50)
-            
-        pygame.draw.circle(surface, color, draw_pos.center, 6)
-        pygame.draw.circle(surface, (255,255,255), draw_pos.center, 2)
+        entities_draw.draw_projectile(surface, camera, self)
 
-class Bot(PhysicsEntity):
-    def __init__(self, x, y):
-        super().__init__(x, y, 30)
-        self.hp = 100
-        self.is_dead = False
-        self.move_timer = 0
-        self.dir = 0
-
-    def update_ai(self, walls):
-        if self.is_dead: return
-        self.move_timer -= 1
-        if self.move_timer <= 0:
-            self.move_timer = random.randint(50, 150)
-            self.dir = random.choice([-1, 0, 1])
+class Player(PhysicsEntity):
+    def __init__(self, x, y, particles, camera, char_type="BLUE"):
+        super().__init__(x, y, 30, 30)
+        self.particles = particles
+        self.camera = camera
+        self.char_type = char_type
+        self.color = Config.COLOR_PLAYER_BLUE if char_type == "BLUE" else Config.COLOR_PLAYER_RED
         
-        if self.dir: 
-            self.vel.x += self.dir * 0.5
-            self.vel.x = max(min(self.vel.x, 3), -3) # Cap de velocidade
-            
+        # Physics vars
+        self.hook_state = 0 # 0: idle, 1: flying, 2: anchored
+        self.hook_pos = pygame.math.Vector2(0,0)
+        self.hook_vel = pygame.math.Vector2(0,0)
+        self.hook_target_entity = None
+        self.hook_tension = 0
+        self.jumps_left = 0
+        
+        # Visuals
+        self.scale_x = 1.0; self.scale_y = 1.0; self.facing_right = True
+        self.laser_trail = [] 
+
+        # Weapons
+        self.current_weapon = 1; self.shoot_cooldown = 0; self.projectiles = [] 
+
+    def set_projectiles_list(self, proj_list):
+        self.projectiles = proj_list
+
+    def update(self, inputs, walls, entities):
+        # 1. Weapon Switch
+        if inputs['weapon1']: self.current_weapon = 1
+        if inputs['weapon2']: self.current_weapon = 2
+
+        # 2. Movimento
+        accel = Config.MOVE_ACCEL
+        if not self.on_ground: accel *= 0.5 
+        
+        if inputs['left']: self.vel.x -= accel; self.facing_right = False
+        if inputs['right']: self.vel.x += accel; self.facing_right = True
+        
+        friction = Config.FRICTION_GROUND if self.on_ground else Config.FRICTION_AIR
+        self.vel.x *= friction
+
+        if self.on_ground: self.jumps_left = Config.MAX_JUMPS
+        if inputs['jump'] and self.jumps_left > 0:
+            self.vel.y = -Config.JUMP_FORCE; self.jumps_left -= 1
+            self.scale_x = 0.7; self.scale_y = 1.3
+            self.particles.emit((self.rect.centerx, self.rect.bottom), 5, (200, 200, 200))
+
+        # 3. Actions
+        self.update_hook(inputs, walls, entities)
+        self.update_weapons(inputs, walls, entities)
+
+        # 4. Physics Walls
+        prev_ground = self.on_ground
         self.update_physics(walls)
-        self.vel.x *= Config.MOVE_FRICTION
+        self.handle_player_collision(entities)
+
+        if not prev_ground and self.on_ground: self.scale_x = 1.3; self.scale_y = 0.7
+        self.scale_x += (1.0 - self.scale_x) * 0.1
+        self.scale_y += (1.0 - self.scale_y) * 0.1
+        if self.shoot_cooldown < Config.RIFLE_COOLDOWN - 5: self.laser_trail = []
+
+    def handle_player_collision(self, entities):
+        for other in entities:
+            if other is self or not isinstance(other, PhysicsEntity): continue
+            if self.rect.colliderect(other.rect):
+                dx = self.rect.centerx - other.rect.centerx
+                dy = self.rect.centery - other.rect.centery
+                overlap_x = (self.rect.width + other.rect.width) / 2 - abs(dx)
+                overlap_y = (self.rect.height + other.rect.height) / 2 - abs(dy)
+                if overlap_x < overlap_y:
+                    if dx > 0: self.pos.x += overlap_x
+                    else: self.pos.x -= overlap_x
+                    self.vel.x *= 0.5; self.rect.x = int(self.pos.x)
+                else:
+                    if dy < 0: 
+                        self.pos.y -= overlap_y; self.rect.y = int(self.pos.y); self.vel.y = 0; self.on_ground = True
+                        if abs(dx) > 2 or abs(self.vel.x) > 0.1:
+                            self.vel.x += (1 if dx > 0 else -1) * 0.8
+                    else: self.pos.y += overlap_y; self.rect.y = int(self.pos.y); self.vel.y = 0
+
+    def update_weapons(self, inputs, walls, entities):
+        if self.shoot_cooldown > 0: self.shoot_cooldown -= 1
+        if inputs['shoot'] and self.shoot_cooldown == 0:
+            mouse_world = self.camera.to_world(inputs['mouse_pos'])
+            center = pygame.math.Vector2(self.rect.center)
+            diff = mouse_world - center
+            angle = math.atan2(diff.y, diff.x); direction = diff.normalize()
+            if self.char_type == "BLUE":
+                if self.current_weapon == 1: 
+                    self.shoot_cooldown = Config.HAMMER_COOLDOWN; self.use_melee(center, angle, entities, False); self.camera.trigger_shake(2, 2)
+                elif self.current_weapon == 2: 
+                    self.shoot_cooldown = Config.GRENADE_COOLDOWN; proj = Projectile(center.x, center.y, angle, self.particles)
+                    self.projectiles.append(proj); self.vel -= direction * 4 
+            elif self.char_type == "DUMMY":
+                if self.current_weapon == 1: 
+                    self.shoot_cooldown = Config.HAMMER_COOLDOWN; self.use_melee(center, angle, entities, True); self.camera.trigger_shake(2, 2)
+                elif self.current_weapon == 2: 
+                    self.shoot_cooldown = Config.RIFLE_COOLDOWN; fire_pos = center + direction * 35 
+                    self.use_rifle(fire_pos, direction, walls, entities); self.camera.trigger_shake(3, 4); self.vel -= direction * 2 
+
+    def use_melee(self, center, angle, entities, is_bat):
+        hit_range = Config.HAMMER_RANGE; hit_pos = center + pygame.math.Vector2(math.cos(angle), math.sin(angle)) * (hit_range * 0.8)
+        force_dir = pygame.math.Vector2(math.cos(angle), math.sin(angle)); hit_something = False
+        for entity in entities:
+            if entity is not self and isinstance(entity, PhysicsEntity):
+                if center.distance_to(entity.rect.center) < hit_range + 30: 
+                    hit_something = True; entity.vel += force_dir * (Config.HAMMER_FORCE * 1.2 if is_bat else Config.HAMMER_FORCE)
+                    self.particles.emit(entity.rect.center, 10, (255, 255, 255), 5)
+        if hit_something: self.particles.emit(hit_pos, 5, (200, 200, 200), 2)
+
+    def use_rifle(self, start_pos, direction, walls, entities):
+        trajectory, hit_entity, hit_dir = MathUtils.raycast_bounce(start_pos, direction, walls, entities, Config.RIFLE_MAX_BOUNCES)
+        self.laser_trail = trajectory 
+        if hit_entity and isinstance(hit_entity, PhysicsEntity):
+            hit_entity.vel += hit_dir * Config.RIFLE_FORCE; self.particles.emit(hit_entity.rect.center, 15, Config.COLOR_RIFLE_BEAM, 6)
+
+    def update_hook(self, inputs, walls, entities):
+        center = pygame.math.Vector2(self.rect.center)
+        
+        # 0. Disparo
+        if inputs['hook'] and self.hook_state == 0:
+            mouse_world = self.camera.to_world(inputs['mouse_pos'])
+            direction = (mouse_world - center).normalize()
+            self.hook_pos = pygame.math.Vector2(center)
+            self.hook_vel = direction * Config.HOOK_SPEED
+            self.hook_state = 1
+            self.hook_target_entity = None
+        
+        # Soltar gancho
+        if not inputs['hook']:
+            self.hook_state = 0; self.hook_target_entity = None; self.hook_tension = 0
+            return
+
+        # 1. Gancho em Voo
+        if self.hook_state == 1:
+            self.hook_pos += self.hook_vel
+            if center.distance_to(self.hook_pos) > Config.HOOK_RANGE:
+                self.hook_state = 0; return
+            
+            # Colisão Paredes
+            pt_rect = pygame.Rect(self.hook_pos.x, self.hook_pos.y, 1, 1)
+            for w in walls:
+                if w.colliderect(pt_rect): self.hook_state = 2; break
+            
+            # --- HITBOX EXPANDIDA PARA ENTIDADES ---
+            hook_detector = pygame.Rect(0, 0, 20, 20)
+            hook_detector.center = (self.hook_pos.x, self.hook_pos.y)
+
+            for entity in entities:
+                if entity is not self and entity.is_hookable:
+                    dummy_hitbox = entity.rect.inflate(30, 30) 
+                    if dummy_hitbox.colliderect(hook_detector): 
+                        self.hook_state = 2; self.hook_target_entity = entity
+                        self.hook_pos = pygame.math.Vector2(entity.rect.center)
+                        # Yank inicial (puxão de impacto)
+                        target_center = pygame.math.Vector2(entity.rect.center)
+                        pull_dir = (center - target_center).normalize()
+                        entity.vel += pull_dir * Config.HOOK_YANK_FORCE
+                        break
+
+        # 2. Gancho Ancorado (Mola Física Mútua)
+        if self.hook_state == 2:
+            if self.hook_target_entity: 
+                target_pos = pygame.math.Vector2(self.hook_target_entity.rect.center)
+                self.hook_pos = target_pos 
+            else:
+                target_pos = self.hook_pos
+            
+            diff = target_pos - center
+            dist = diff.length()
+
+            if dist > 5:
+                direction = diff.normalize()
+                
+                if not self.hook_target_entity:
+                    # Puxando a parede
+                    self.vel += direction * Config.HOOK_PULL_FORCE
+                    self.hook_tension = 0.5
+                else:
+                    # --- FÍSICA MÚTUA (DUMMY/PLAYER) ---
+                    pull_margin = 70 
+                    pull_point = center + direction * pull_margin
+                    target_center = pygame.math.Vector2(self.hook_target_entity.rect.center)
+                    
+                    # Lei de Hooke (Aceleração)
+                    vec_to_pull = pull_point - target_center
+                    spring_force = vec_to_pull * Config.HOOK_SPRING_K
+                    
+                    # Amortecimento Relativo (Damping)
+                    rel_vel = self.hook_target_entity.vel - self.vel
+                    damping_force = rel_vel * (1 - Config.HOOK_DAMPING)
+                    
+                    final_accel = spring_force - damping_force
+                    
+                    # Aplica força em AMBOS (Ação e Reação)
+                    self.hook_target_entity.vel += final_accel
+                    self.vel -= final_accel * 0.5 # Tu sentes o peso do dummy
+                    
+                    # Anti-Gravidade Mútua (Flutuação clean de DDNet)
+                    if self.hook_target_entity.vel.y > 0:
+                        self.hook_target_entity.vel.y *= 0.94
+                    if self.vel.y > 0:
+                        self.vel.y *= 0.96
+
+                    # Limites de Velocidade
+                    if self.vel.length() > 25: self.vel.scale_to_length(25)
+                    
+                    self.hook_tension = min(1.0, final_accel.length() / 6.0)
 
     def draw(self, surface, camera):
-        if self.is_dead: return
-        
-        rect_draw = camera.apply(self.rect)
-        
-        # Efeito de dano (piscar branco se tomou dano recentemente seria legal, mas simples por enquanto)
-        color = (200, 50, 50)
-        pygame.draw.rect(surface, color, rect_draw, border_radius=4)
-        
-        # Barra de HP
-        hp_width = 30 * (self.hp / 100)
-        pygame.draw.rect(surface, (0,0,0), (rect_draw.x, rect_draw.y - 10, 30, 6))
-        pygame.draw.rect(surface, (0,255,0), (rect_draw.x, rect_draw.y - 10, hp_width, 6))
+        entities_draw.draw_player(surface, camera, self)
