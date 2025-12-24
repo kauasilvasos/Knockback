@@ -1,34 +1,37 @@
-# config.py
+import pygame
+
 class Config:
-    # Deixe 0, 0 para detectar automaticamente no modo Fullscreen
-    SCREEN_WIDTH = 0 
-    SCREEN_HEIGHT = 0
+    SCREEN_WIDTH = 1280
+    SCREEN_HEIGHT = 720
     FPS = 60
-    TITLE = "Project Teeworlds: DDNet Style"
+    TITLE = "Project Teeworlds: Rebase"
     
     # Cores
-    COLOR_BG = (253, 251, 247)
-    COLOR_PLAYER = (49, 130, 206)
-    COLOR_HOOK = (74, 85, 104)
-    COLOR_GROUND = (45, 55, 72)
-    COLOR_CROSSHAIR = (150, 150, 150) # Nova cor para a mira
+    COLOR_BG = (240, 242, 245)
+    COLOR_PLAYER = (59, 130, 246)
+    COLOR_HOOK = (75, 85, 99)
+    COLOR_GROUND = (31, 41, 55)
     
-    # --- FÍSICA AJUSTADA (Mais pesado/rápido) ---
-    # Aumentei a gravidade para cair mais rápido (DDNet feel)
-    GRAVITY = 0.035       # Antes era ~0.011 no slow mo. Aumentei para pesar.
+    # Física
+    GRAVITY = 0.5
+    TERMINAL_VELOCITY = 15.0
     
-    MOVE_ACCEL = 0.05       # Aceleração de movimento um pouco mais ágil
-    JUMP_FORCE = 5       # Força de pulo mantida (compensa com gravidade)
-    DOUBLE_JUMP_FORCE = 5
-    # Atrito
-    GROUND_FRICTION = 0.92  
-    AIR_RESISTANCE = 0.99
+    # Movimento
+    MOVE_ACCEL = 0.8
+    MOVE_FRICTION = 0.85
+    AIR_FRICTION = 0.98
+    JUMP_FORCE = 11.0
+    DOUBLE_JUMP_FORCE = 10.0
     
-    # --- HOOK & COMBATE ---
-    HOOK_RANGE = 300
-    HOOK_FORCE = 0.05       # Reduzido para não sobrepor a inércia
-    HOOK_DRAG = 0.94        # Maior retenção de velocidade para o pêndulo
-    HOOK_FLY_SPEED = 6.5
+    # Hook
+    HOOK_RANGE = 400
+    HOOK_SPEED = 25.0
+    HOOK_PULL_FORCE = 0.08
+    HOOK_SWING_FORCE = 0.5
+    HOOK_DRAG = 0.995
     
-    EXPLOSION_RADIUS = 100
-    KNOCKBACK_FORCE = 2.25
+    # Granada
+    GRENADE_SPEED = 18.0
+    GRENADE_BOUNCINESS = 0.6
+    EXPLOSION_RADIUS = 120
+    EXPLOSION_FORCE = 12.0
